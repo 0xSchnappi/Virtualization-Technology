@@ -7,22 +7,22 @@
 - **VM-enrty interruption-information field**(虚拟机入口中断信息字段)(32 bits)。该字段提供要注入事件的详细信息.。
 
   <center>Table 25 -17. Format of the VM-Entry Interruption-Information Field</center>
-  
+
   | Bit Position(s) | Content                                                      |
   | --------------- | ------------------------------------------------------------ |
-  | 7:0           | 中断或异常向量                                               |
-  | 10:8          | 中断类型：<br>&nbsp;&nbsp;0：Exteral interrupt外部中断<br>&nbsp;&nbsp;1：Reserved保留<br>&nbsp;&nbsp;2：Non-maskable interrupt不可屏蔽中断(NMI)<br/>&nbsp;&nbsp;3：Hardware exception硬件异常(例如 #PF)<br/>&nbsp;&nbsp;4：Software interrupt软件中断(INT n)<br/>&nbsp;&nbsp;5：Privileged software exception特权软件异常(INT 1)<br/>&nbsp;&nbsp;6：Software exception软件异常(INT3 or INTO)<br/>&nbsp;&nbsp;7：Other Event其他事件 |
-  | 11            | 传递错误码(0 = 不传递; 1 = 传递)                             |
-  | 30:12         | 保留位                                                       |
-  | 31            | 有效位                                                       |
-  
+  | 7:0             | 中断或异常向量                                               |
+  | 10:8            | 中断类型：<br>&nbsp;&nbsp;0：Exteral interrupt外部中断<br>&nbsp;&nbsp;1：Reserved保留<br>&nbsp;&nbsp;2：Non-maskable interrupt不可屏蔽中断(NMI)<br/>&nbsp;&nbsp;3：Hardware exception硬件异常(例如 #PF)<br/>&nbsp;&nbsp;4：Software interrupt软件中断(INT n)<br/>&nbsp;&nbsp;5：Privileged software exception特权软件异常(INT 1)<br/>&nbsp;&nbsp;6：Software exception软件异常(INT3 or INTO)<br/>&nbsp;&nbsp;7：Other Event其他事件 |
+  | 11              | 传递错误码(0 = 不传递; 1 = 传递)                             |
+  | 30:12           | 保留位                                                       |
+  | 31              | 有效位                                                       |
+
   - 这个**vector**(bits 7:0)决定使用IDT中哪个条目或者注入哪个事件
   - 这个**interruption type**(bits 10:8)决定注入执行的细节。一般来说，VMM应该对所有异常类型使用硬件异常**除以下情况**
     - 断点异常(#BP; VMM 应该使用的类型是软件异常)
     - 溢出异常(#OF; VMM应该使用的类型是软件异常)
     - 以及由INT1 生成的其他调试异常(#DB)(VMM应该使用特权软件异常)
   - 仅当有效位(bit 31)为1时，VM入口才会注入事件。此字段中的有效位在每次VM退出时被清除[查看28.2节](#28.2 记录 VM-退出信息并更新 VM-进入控制字段)。
-  
+
 - **VM-entry exception error code**(32 bits)仅当在入口中断信息字段的有效位(bit 31)和传递错误码位(bit 11)都被设置时才会使用此字段
 
 - **VM-entry instruction length**(32 bits)对于注入事件类型是软件中断、软件异常还是特权软件异常，这个字段决定使用RIP的值压入栈中。
@@ -68,11 +68,11 @@
 
 ***
 
-[^1]:这并不意味着由于VM执行控制字段(例如 the exception bitmap)的设置，导致异常或中断的注入会触发虚拟机退出。如果该事件发生在VMX非根模式下，这些设置本来会导致VM退出。相反，在事件传递过程中遇到的嵌套异常可能会导致VM退出。
+[^1]: 这并不意味着由于VM执行控制字段(例如 the exception bitmap)的设置，导致异常或中断的注入会触发虚拟机退出。如果该事件发生在VMX非根模式下，这些设置本来会导致VM退出。相反，在事件传递过程中遇到的嵌套异常可能会导致VM退出。
 
-[^2]:以下未使用的向量引发的硬件异常被视为良性异常：15 和 21-31。向量 20 的硬件异常通常也被视为良性异常，除非处理器支持 "EPT 违规 #VE" VM 执行控制的 1 设置；在这种情况下，该异常的严重性与页面错误相同。
+[^2]: 以下未使用的向量引发的硬件异常被视为良性异常：15 和 21-31。向量 20 的硬件异常通常也被视为良性异常，除非处理器支持 "EPT 违规 #VE" VM 执行控制的 1 设置；在这种情况下，该异常的严重性与页面错误相同。
 
-[^3]:虽然这些涉及RIP，但推送的值的宽度(16 bit、32 bit或64 bit)通常是确定的。
+[^3]: 虽然这些涉及RIP，但推送的值的宽度(16 bit、32 bit或64 bit)通常是确定的。
 
 <div STYLE="page-break-after: always;"></div>
 
@@ -104,51 +104,26 @@
 
 #### 27.6.1.2 事件注入期间的虚拟机VM退出
 
+事件注入本身不会直接导致VM退出，无论VM执行控制的设置如何。例如，将“NMI退出”(NMI exiting)，VM-execution control 设置为1时，不会因为注入NMI而导致VM退出。然而，事件递送过程可能会引发VM退出：
 
+- 如果VM-entry中断信息字段中的向量标识了IDT中的任务门，尝试任务切换可能会导致VM退出，就像在VMX非根操作中正常执行时注入事件一样(详见26.4.2节)。
+- 如果事件递送遇到嵌套异常，VM退出可能会发生，具体取决于异常位图的内容(详见26.2节)。
+- 如果事件递送引发双重错误异常(由于嵌套异常)，逻辑处理器在尝试调用双重错误处理程序时遇到另一种嵌套异常，并且该异常不会因异常位图而导致VM退出，那么由于三重错误将发生VM退出(详见26.2节)。
+- 如果事件递送注入双重错误异常并遇到嵌套异常，且该异常不会因异常位图导致VM退出，则三重错误会导致VM退出(详见26.2节)。
+- 如果"virtualize APIC accesses"VM-execution control设置为1,事件递送生成对APIC-access 页面的访问，该访问将按照30.4节的描述进行处理并可能导致VM退出。
 
+如果事件递送过程确实导致了VM退出，那么在VM退出之前的处理器状态将与在VMX非根操作中正常执行时发生注入事件的情况相同。如果注入事件直接访问了导致VM退出的任务门，或者第一个遇到的嵌套异常导致了VM退出，关于注入事件的信息将保存在IDT向量化信息字段中(详见28.2.4节)。
 
+本节内容同样适用于当external interrupt的注入导致用户中断通知处理而非事件递送的情况。
 
+#### 27.6.1.3 进入实地址模式时的事件注入
 
+如果VM进入时将CR0.PE设置为0，则任何注入的向量事件将按照实地址模式的正常处理方式进行递送。具体来说，VM进入会使用VM-entry interruption-information field中提供的向量，从IDTR.base线性地址处的中断向量表中选择一个4字节的条目。更多详细信息可参见《Intel® 64和IA-32架构软件开发人员手册》第3A卷的15.1.4节。
 
+由于如果VM进入后CR0.PE为0,VM-entry interruption-information field的第11位(deliver error code)必须为0(详见27.2.1.3节)，因此在CR0.PE=0时注入的向量事件不会将错误码推送到堆栈中。这与实地址模式下的事件递送一致。
 
+如果事件递送过程中遇到故障（例如由于IDTR.limit或SS.limit的违规），该故障会被视为发生在VMX非跟操作中的事件递送期间。此类故障可能会导致VM退出，如27.6.1.2节中所述。
 
+#### 27.6.2 注入待处理的MTF VM退出
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+如果VM-entry interruption-information field的中断类型为7(其他事件)且向量字段为0,则VM进入会导致在VM进入后的指令边界上待处理一个MTF(监控陷阱标志)VM退出。及时“monitor trap flag” VM-execution control是0,情况仍然如此。有关待处理MTF VM退出的处理方式，请参见26.5.2节。
